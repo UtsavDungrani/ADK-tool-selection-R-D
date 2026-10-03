@@ -69,6 +69,61 @@ actually sent after expanding toolsets.
 Reporting only `accuracy` hides which of the two you are looking at. They have
 completely different fixes.
 
+### Tools are real Python functions
+
+Every tool is an ordinary Python function. Nothing is declared in a side table.
+
+```python
+@tool(domain="github", confusable_with=["jira_create_issue"])
+def github_create_issue(repo: str, title: str, body: Optional[str] = None) -> dict:
+    """Open a new issue on a GitHub repository to report a bug.
+
+    Args:
+        repo: Repository in owner/name form, e.g. acme/web-app.
+        title: Short issue title.
+        body: Markdown description of the issue.
+    """
+    return {"status": "stub", ...}
+```
+
+The docstring summary is the description the model sees, the `Args:` block
+supplies per-parameter descriptions, and the signature supplies the schema
+(`Literal[...]` becomes an enum, a default makes a parameter optional). Edit the
+docstring and the declaration changes with it — code and declaration cannot
+drift apart.
+
+`@tool` carries only what has no natural home in a signature: `domain` (drives
+the hierarchical router) and `confusable_with` (error analysis only, never
+selection).
+
+`ToolSpec` still exists, but is now **derived by introspection** rather than
+authored. The strategies need tool metadata as inspectable data — to index,
+embed, rank and generate — which a function object does not hand you directly:
+
+```
+real Python function  ──introspect──►  ToolSpec  ──render──►  declaration
+   (source of truth)                  (strategies index)    (model sees)
+```
+
+Generated filler is built as real functions too, introspected through the same
+path. A parallel spec-only path would mean the thing being scaled is not the
+thing being measured.
+
+**Why not ADK's `FunctionTool`?** We tried it. It does **not** parse a
+Google-style `Args:` block into per-parameter descriptions — it dumps the entire
+docstring, `Args:` block included, into the declaration's top-level description
+and leaves each parameter with just a name and a type:
+
+```json
+"repo": { "title": "Repo", "type": "string" }     // description gone
+```
+
+Per-parameter descriptions are part of what the model selects on and what the
+retrievers index, so accepting that would quietly change the measurement.
+`FunctionBackedTool` is a thin `BaseTool` that builds the declaration from the
+introspected spec and otherwise behaves normally — `run_async` really does call
+the Python function.
+
 ### Catalog
 
 **100 hand-written core tools** across 10 domains, built around **deliberately
@@ -361,12 +416,15 @@ Open next steps, roughly in value order:
 ## Layout
 
 ```
-catalog/      schema.py (ToolSpec, ADK StubTool) · domains.py (base 50)
-              domains_ext.py (extended 50) · __init__.py (profiles + scaling)
+tools/        100 real @tool functions, one module per domain
+              _registry.py (decorator + introspection) · _spec.py (ToolSpec)
+              _adk.py (FunctionBackedTool) · _filler.py (generated functions)
+catalog/      __init__.py — profiles, scaling, filler vocabulary
 tasks/        tasks.py (60) · tasks_ext.py (60) · __init__.py (profile-scoped)
 strategies/   base.py (interface + ADK bridge) · lexical.py · embedding.py · hierarchical.py
 harness/      runner.py (ADK execution + instrumentation) · metrics.py
 agents/       one ADK agent package per strategy, for `adk web`
+scripts/      one-time codegen used to migrate specs into modules
 run_eval.py   the sweep — real numbers
 compare_query.py  one query across every strategy — demo/intuition
 results/      CSV output

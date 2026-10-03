@@ -1,8 +1,8 @@
-"""Catalog loading, with catalog size as a first-class experimental parameter.
+"""Catalog assembly: profiles, scaling, and filler generation.
 
-The headline question of this study is how selection behaves as the catalog
-grows. That requires growing the catalog *without* changing the task set --
-otherwise accuracy changes are confounded by the tasks getting easier or harder.
+The tools themselves live in `tools/` as real Python functions. This package
+only decides *which* of them (plus how much generated filler) forms the catalog
+for a given run.
 
 TWO KNOBS, DELIBERATELY SEPARATE
 
@@ -25,52 +25,63 @@ because the questions changed -- say so if you report both.
 tools would invalidate gold labels and produce a quietly meaningless number,
 which is worse than a crash.
 
-Filler generation is seeded and deterministic, so runs are reproducible.
+Filler generation is seeded and deterministic, so runs are reproducible. Filler
+tools are built as real functions by `tools._filler`, introspected through the
+same code path as hand-written ones -- a parallel spec-only path would mean the
+thing being scaled is not the thing being measured.
 """
 
 from __future__ import annotations
 
 import random
 
-from .domains import ALL_SPECS as BASE_SPECS
-from .domains import DOMAIN_DESCRIPTIONS as BASE_DOMAIN_DESCRIPTIONS
-from .domains import DOMAINS as BASE_DOMAINS
-from .domains_ext import DOMAIN_DESCRIPTIONS_EXT, DOMAINS_EXT, EXT_SPECS
-from .schema import Param, StubTool, ToolSpec, build_tools
+from tools import ALL_SPECS as _ALL_SPECS
+from tools import DOMAINS as _DOMAINS
+from tools._adk import FunctionBackedTool, build_tools
+from tools._domains import DOMAIN_DESCRIPTIONS
+from tools._filler import make_filler_spec
+from tools._spec import Param, ToolSpec
 
 __all__ = [
     "ALL_SPECS",
-    "BASE_SPECS",
-    "EXT_SPECS",
     "DOMAINS",
     "DOMAIN_DESCRIPTIONS",
     "PROFILES",
+    "BASE_DOMAINS",
+    "EXT_DOMAINS",
     "Param",
     "ToolSpec",
-    "StubTool",
+    "FunctionBackedTool",
     "build_tools",
     "load_catalog",
     "core_names",
     "CORE_NAMES",
 ]
 
-# The full 100-tool core: 10 domains x 10 tools.
-ALL_SPECS: list[ToolSpec] = list(BASE_SPECS) + list(EXT_SPECS)
+#: The 5 domains the study started with, and the 5 added when it scaled to 100.
+BASE_DOMAINS = ("github", "jira", "slack", "gcalendar", "gdrive")
+EXT_DOMAINS = ("notion", "zendesk", "pagerduty", "stripe", "sentry")
 
-DOMAINS: dict[str, list[ToolSpec]] = {**BASE_DOMAINS, **DOMAINS_EXT}
+# Canonical order: base domains first, then extended, each in the order the
+# study introduced them. `tools/` imports its modules alphabetically, but
+# catalog order is not cosmetic -- BM25 breaks score ties by catalog index, so
+# a reordering would shift results for a reason unrelated to the experiment.
+_DOMAIN_ORDER = BASE_DOMAINS + EXT_DOMAINS
 
-DOMAIN_DESCRIPTIONS: dict[str, str] = {
-    **BASE_DOMAIN_DESCRIPTIONS,
-    **DOMAIN_DESCRIPTIONS_EXT,
-}
+ALL_SPECS: list[ToolSpec] = [s for d in _DOMAIN_ORDER for s in _DOMAINS[d]]
+DOMAINS: dict[str, list[ToolSpec]] = {d: list(_DOMAINS[d]) for d in _DOMAIN_ORDER}
+
+assert len(ALL_SPECS) == len(_ALL_SPECS), (
+    "a domain is missing from _DOMAIN_ORDER; every registered domain must be listed"
+)
 
 PROFILES: dict[str, list[ToolSpec]] = {
-    "base": list(BASE_SPECS),   # 50  -- original 5 domains
-    "full": list(ALL_SPECS),    # 100 -- all 10 domains
+    "base": [s for s in ALL_SPECS if s.domain in BASE_DOMAINS],   # 50
+    "full": list(ALL_SPECS),                                      # 100
 }
 
-#: Names of every hand-written tool across all profiles. Used by task
-#: validation to confirm no gold label points at generated filler.
+#: Names of every hand-written tool. Used by task validation to confirm no gold
+#: label points at generated filler.
 CORE_NAMES: frozenset[str] = frozenset(s.name for s in ALL_SPECS)
 
 
@@ -84,10 +95,10 @@ def core_names(profile: str = "full") -> frozenset[str]:
 # retriever rejects them trivially.
 #
 # Systems promoted into the hand-written core (notion, zendesk, pagerduty,
-# stripe, sentry) were REMOVED from this list. Leaving them would generate
-# filler sharing a namespace with real tools, so a hierarchical router that
-# correctly picked "sentry" would be handed a mix of real and junk tools and
-# scored as if it had failed.
+# stripe, sentry) are deliberately absent. Leaving them would generate filler
+# sharing a namespace with real tools, so a hierarchical router that correctly
+# picked "sentry" would be handed a mix of real and junk tools and scored as if
+# it had failed.
 _FILLER_SYSTEMS: dict[str, str] = {
     "confluence": "Confluence wiki",
     "linear": "Linear issue tracker",
@@ -116,38 +127,23 @@ _FILLER_SYSTEMS: dict[str, str] = {
     "newrelic": "New Relic observability platform",
 }
 
-# (verb, slot, description template) triples.
-_FILLER_ACTIONS: list[tuple[str, str, str]] = [
-    ("create", "record", "Create a new {obj} record in {sys}."),
-    ("update", "record", "Update the fields of an existing {obj} record in {sys}."),
-    ("delete", "record", "Delete a {obj} record from {sys}."),
-    ("list", "records", "List {obj} records available in {sys}."),
-    ("search", "records", "Search {obj} records in {sys} by free-text query."),
-    ("get", "record", "Fetch a single {obj} record from {sys} by identifier."),
-    ("archive", "record", "Archive a {obj} record in {sys} without deleting it."),
-    ("assign", "owner", "Assign an owner to a {obj} record in {sys}."),
-    ("export", "report", "Export a {obj} report from {sys} to a downloadable file."),
-    ("list", "activity", "List recent {obj} activity events recorded in {sys}."),
+_FILLER_ACTIONS: list[tuple[str, str]] = [
+    ("create", "Create a new {obj} record in {sys}."),
+    ("update", "Update the fields of an existing {obj} record in {sys}."),
+    ("delete", "Delete a {obj} record from {sys}."),
+    ("list", "List {obj} records available in {sys}."),
+    ("search", "Search {obj} records in {sys} by free-text query."),
+    ("get", "Fetch a single {obj} record from {sys} by identifier."),
+    ("archive", "Archive a {obj} record in {sys} without deleting it."),
+    ("assign", "Assign an owner to a {obj} record in {sys}."),
+    ("export", "Export a {obj} report from {sys} to a downloadable file."),
+    ("audit", "List recent {obj} activity events recorded in {sys}."),
 ]
 
 _FILLER_OBJECTS = [
     "page", "ticket", "task", "comment", "attachment", "label",
     "webhook", "template", "dashboard", "notification",
 ]
-
-
-def _filler_spec(system: str, sys_label: str, action, obj: str) -> ToolSpec:
-    verb, _slot, template = action
-    return ToolSpec(
-        name=f"{system}_{verb}_{obj}",
-        domain=system,
-        description=template.format(sys=sys_label, obj=obj),
-        params=(
-            Param("id", "string", f"Identifier of the {obj}.", required=False),
-            Param("query", "string", "Free-text filter.", required=False),
-            Param("limit", "integer", "Maximum number of results.", required=False),
-        ),
-    )
 
 
 def pad_to(core: list[ToolSpec], n: int, seed: int = 0) -> list[ToolSpec]:
@@ -163,21 +159,28 @@ def pad_to(core: list[ToolSpec], n: int, seed: int = 0) -> list[ToolSpec]:
     rng = random.Random(seed)
 
     combos = [
-        (sysname, syslabel, action, obj)
+        (sysname, syslabel, verb, template, obj)
         for sysname, syslabel in _FILLER_SYSTEMS.items()
-        for action in _FILLER_ACTIONS
+        for verb, template in _FILLER_ACTIONS
         for obj in _FILLER_OBJECTS
     ]
     rng.shuffle(combos)
 
-    for sysname, syslabel, action, obj in combos:
+    for sysname, syslabel, verb, template, obj in combos:
         if len(out) >= n:
             break
-        spec = _filler_spec(sysname, syslabel, action, obj)
-        if spec.name in seen:
+        name = f"{sysname}_{verb}_{obj}"
+        if name in seen:
             continue
-        seen.add(spec.name)
-        out.append(spec)
+        seen.add(name)
+        out.append(
+            make_filler_spec(
+                name=name,
+                domain=sysname,
+                description=template.format(sys=syslabel, obj=obj),
+                obj=obj,
+            )
+        )
 
     if len(out) < n:
         raise ValueError(
