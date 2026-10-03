@@ -17,8 +17,9 @@ cannot surface the gold tool, no amount of model quality will save it, and you
 find that out for free.
 
 Examples:
-    python run_eval.py --retrieval-only --strategies bm25,random --sizes 50,400
-    python run_eval.py --strategies bm25,all_tools --sizes 50 --k 5
+    python run_eval.py --retrieval-only --strategies bm25,random --sizes 100,200,400
+    python run_eval.py --strategies bm25,all_tools --sizes 100 --k 5
+    python run_eval.py --retrieval-only --profile base --sizes 50,400
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from catalog import load_catalog
-from tasks import TASKS
+from tasks import tasks_for
 
 RESULTS_DIR = Path(__file__).parent / "results"
 
@@ -51,7 +52,7 @@ def _load_dotenv() -> None:
         os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
 
 
-def build_strategy(name: str, catalog, model: str):
+def build_strategy(name: str, catalog, model: str, tasks):
     from strategies.embedding import EmbeddingStrategy
     from strategies.hierarchical import HierarchicalStrategy
     from strategies.lexical import (
@@ -74,7 +75,7 @@ def build_strategy(name: str, catalog, model: str):
     if name == "hierarchical":
         return HierarchicalStrategy(catalog, model=model)
     if name == "oracle":
-        return OracleStrategy(catalog, {t.query.strip(): t.gold for t in TASKS})
+        return OracleStrategy(catalog, {t.query.strip(): t.gold for t in tasks})
     raise SystemExit(f"unknown strategy: {name}")
 
 
@@ -82,24 +83,26 @@ def build_strategy(name: str, catalog, model: str):
 def run_retrieval_only(args) -> list[dict]:
     from tasks import TIERS
 
+    tasks = tasks_for(args.profile)
     rows: list[dict] = []
     ks = [int(k) for k in args.k_sweep.split(",")]
     for size in args.sizes:
-        catalog = load_catalog(size, seed=args.seed)
+        catalog = load_catalog(size, seed=args.seed, profile=args.profile)
         for sname in args.strategies:
-            strat = build_strategy(sname, catalog, args.model)
+            strat = build_strategy(sname, catalog, args.model, tasks)
             strat.warmup()
             for k in ks:
-                hits = {t.id: t.gold in {s.name for s in strat.select(t.query, k)} for t in TASKS}
+                hits = {t.id: t.gold in {s.name for s in strat.select(t.query, k)} for t in tasks}
                 row = {
                     "mode": "retrieval",
+                    "profile": args.profile,
                     "strategy": sname,
                     "catalog_size": size,
                     "k": k,
-                    "recall": round(sum(hits.values()) / len(TASKS), 4),
+                    "recall": round(sum(hits.values()) / len(tasks), 4),
                 }
                 for tier in TIERS:
-                    sub = [t for t in TASKS if t.tier == tier]
+                    sub = [t for t in tasks if t.tier == tier]
                     row[f"recall_{tier}"] = round(
                         sum(hits[t.id] for t in sub) / len(sub), 4
                     )
@@ -128,26 +131,27 @@ async def run_full(args) -> tuple[list[dict], list[dict]]:
             "or use --retrieval-only."
         )
 
+    tasks = tasks_for(args.profile)
     summaries: list[dict] = []
     per_task: list[dict] = []
 
     for size in args.sizes:
-        catalog = load_catalog(size, seed=args.seed)
+        catalog = load_catalog(size, seed=args.seed, profile=args.profile)
         for sname in args.strategies:
-            strat = build_strategy(sname, catalog, args.model)
+            strat = build_strategy(sname, catalog, args.model, tasks)
             strat.warmup()
             k = len(catalog) if sname == "all_tools" else args.k
             toolset = StrategyToolset(strat, k=k)
             session_service = InMemorySessionService()
 
             results = []
-            for i, task in enumerate(TASKS, 1):
+            for i, task in enumerate(tasks, 1):
                 r = await run_task(task, toolset, args.model, session_service)
                 results.append(r)
                 per_task.append({"strategy": sname, "catalog_size": size, **r.as_row()})
                 mark = "OK " if r.correct else ("ERR" if r.error else "   ")
                 print(
-                    f"  [{i:>2}/{len(TASKS)}] {mark} {task.id:<6} {sname:<14} "
+                    f"  [{i:>2}/{len(tasks)}] {mark} {task.id:<6} {sname:<14} "
                     f"size={size:<4} declared={r.declared_count:<4} "
                     f"gold={task.gold:<32} chose={r.chosen}"
                 )
@@ -195,7 +199,9 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--strategies", default="bm25,random",
                    help="comma-separated: all_tools,random,bm25,embedding,embedding_symmetric,hierarchical,oracle")
-    p.add_argument("--sizes", default="50", help="comma-separated catalog sizes, e.g. 50,100,200,400")
+    p.add_argument("--sizes", default="100", help="comma-separated catalog sizes, e.g. 100,200,400")
+    p.add_argument("--profile", default="full", choices=["base", "full"],
+                   help="which hand-written core: base=50 tools/60 tasks, full=100/120")
     p.add_argument("--k", type=int, default=5, help="tools declared per request (full mode)")
     p.add_argument("--k-sweep", dest="k_sweep", default="1,3,5,10,20",
                    help="k values to measure in --retrieval-only mode")

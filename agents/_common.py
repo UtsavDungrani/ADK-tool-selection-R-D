@@ -25,7 +25,8 @@ picked wrong, the retriever is fine and the descriptions are not.
 
 CONFIG
 
-  TSRND_CATALOG_SIZE   catalog size, default 50
+  TSRND_PROFILE        "base" (50 core tools) or "full" (100), default full
+  TSRND_CATALOG_SIZE   total catalog size incl. filler, default = core size
   TSRND_K              tools declared per request, default 5
 
 Set these in the project `.env` and restart `adk web` to compare sizes.
@@ -66,8 +67,18 @@ and why it was the right one over the closest alternative.
 """
 
 
+def _profile() -> str:
+    return os.environ.get("TSRND_PROFILE", "full")
+
+
 def _catalog_size() -> int:
-    return int(os.environ.get("TSRND_CATALOG_SIZE", "50"))
+    """Total catalog size. Defaults to the profile's core (no filler padding)."""
+    raw = os.environ.get("TSRND_CATALOG_SIZE")
+    if raw:
+        return int(raw)
+    from catalog import PROFILES
+
+    return len(PROFILES[_profile()])
 
 
 def _k() -> int:
@@ -117,7 +128,7 @@ def _make_capture(strategy_name: str):
 
 def make_agent(strategy_name: str, description: str) -> LlmAgent:
     model = os.environ.get("TSRND_MODEL", DEFAULT_MODEL)
-    catalog = load_catalog(_catalog_size())
+    catalog = load_catalog(_catalog_size(), profile=_profile())
     strategy = _build_strategy(strategy_name, catalog, model)
     strategy.warmup()
 

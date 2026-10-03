@@ -71,33 +71,61 @@ completely different fixes.
 
 ### Catalog
 
-**50 core tools** across `github`, `jira`, `slack`, `gcalendar`, `gdrive`,
-hand-written with **deliberately seeded collisions** (31 of 50 carry a
-`confusable_with` label):
+**100 hand-written core tools** across 10 domains, built around **deliberately
+seeded collisions**:
 
-- *cross-domain homonyms* — `github_create_issue` ↔ `jira_create_issue`
+| group | domains |
+|---|---|
+| base | `github` `jira` `slack` `gcalendar` `gdrive` |
+| extended | `notion` `zendesk` `pagerduty` `stripe` `sentry` |
+
+Three collision classes, escalating:
+
+- *pairwise homonyms* — `github_create_issue` ↔ `jira_create_issue`
 - *within-domain near-synonyms* — `gdrive_list_files` ↔ `gdrive_search_files`
-- *semantic overlap* — `gdrive_share_file` ↔ `github_add_collaborator`
+- *multi-way* — "file a ticket" has **four** defensible destinations
+  (`github_create_issue` / `jira_create_issue` / `zendesk_create_ticket` /
+  `sentry_search_issues`, plus `pagerduty_trigger_incident`); "add a comment"
+  has six. Disambiguation depends on *who reported it and what happens next* —
+  the realistic hard case.
+
+`stripe` is a control domain: payments vocabulary overlaps almost nothing, so
+stripe tools surfacing for engineering queries means the index is broken.
 
 Distractor density, not raw count, is what degrades selection. The catalog is
 built around that claim.
 
-**Scaling** holds the task set fixed. `load_catalog(n)` keeps all 50 core tools
-and pads with generated filler from 20 plausible neighbouring SaaS systems.
-Filler is never a gold answer, so sweeping 50 → 400 varies exactly one thing:
-the number of wrong answers to reject. `confusable_with` is never read by any
-strategy — it is used only to split errors into *fell into a designed trap* vs
-*picked something unrelated*.
+### Two knobs, deliberately separate
+
+| knob | varies | effect |
+|---|---|---|
+| `profile` | which hand-written core | **changes the questions** — `base` = 50 tools/60 tasks, `full` = 100/120 |
+| `size` | total catalog incl. filler | **holds questions fixed**, adds wrong answers to reject |
+
+Sweeping `size` at a fixed `profile` isolates distractor pressure. Changing
+`profile` is a different experiment; its numbers are not directly comparable
+because the question set changed — say so if you report both.
+
+Filler comes from 25 plausible neighbouring SaaS systems and is **never** a gold
+answer. Systems promoted into the core were removed from the filler vocabulary,
+so a hierarchical router that correctly picks `sentry` is not handed a mix of
+real and generated tools and then scored as if it had failed.
+
+`size` below the core **raises** rather than truncating — silently dropping gold
+tools would produce a quietly meaningless number, which is worse than a crash.
+
+`confusable_with` is never read by any strategy. It only splits errors into
+*fell into a designed trap* vs *picked something unrelated*.
 
 ### Tasks
 
-60 labelled queries, 12 per domain, balanced 20/20/20 across tiers:
+120 labelled queries, 12 per domain, balanced 40/40/40 across tiers:
 
 - **easy** — names the system (`"Open a GitHub issue..."`)
 - **medium** — system implied (`"Where is validate_jwt defined?"`)
 - **hard** — sits on a seeded trap
 
-All 50 core tools appear as gold at least once.
+All 100 core tools appear as gold at least once.
 
 ### Strategies
 
@@ -219,14 +247,14 @@ pip install -r requirements.txt
 Offline — no key, free, instant:
 
 ```bash
-python run_eval.py --retrieval-only --strategies bm25,random --sizes 50,100,200,400
+python run_eval.py --retrieval-only --strategies bm25,random,oracle --sizes 100,200,400
 ```
 
 Full sweep through a real ADK agent — needs a key:
 
 ```bash
 cp .env.example .env    # then paste your AI Studio key
-python run_eval.py --strategies bm25,all_tools,random --sizes 50 --k 5
+python run_eval.py --strategies bm25,all_tools,random --sizes 100 --k 5
 ```
 
 Results are written to `results/` as CSV (a summary row per configuration, plus
@@ -240,45 +268,82 @@ Useful flags: `--k` tools declared per request, `--sizes` catalog sweep,
 
 ## Findings so far
 
-**Retrieval-only, BM25 vs random, recall@k:**
+All retrieval-only, `profile=full` (100-tool core, 120 tasks), so they cost
+nothing to reproduce.
 
-| catalog | strategy | R@1 | R@3 | R@5 | R@10 |
-|---|---|---|---|---|---|
-| 50 | bm25 | 0.65 | 0.82 | 0.85 | 0.90 |
-| 50 | random | 0.00 | 0.00 | 0.07 | 0.22 |
-| 400 | bm25 | 0.62 | 0.82 | 0.83 | 0.92 |
-| 400 | random | 0.00 | 0.00 | 0.02 | 0.02 |
+### 1. Baseline token cost scales linearly. Selection cost is flat.
 
-**1. BM25 recall is nearly flat from 50 → 400 tools** (R@1 0.65 → 0.62) while
-random collapses — confirming the padding genuinely adds distractors and the
-metric is sensitive to them. If this holds under the full agent run, the
-headline is that **scaling to 400 tools is a token-cost problem, not a retrieval
-problem.** That reframes the whole optimisation: spend effort on what you
-*declare*, not on ranking harder.
+Same query, measured through a real ADK agent:
 
-*Caveat:* filler padding is lexically distant from the core vocabulary, so BM25
-rejects it easily. All the hard traps live in the core 50 and are present at
-every size, so difficulty is constant by construction. A harder test is padding
-with near-duplicates *of the core tools* — that is the obvious next ablation.
+| catalog | `all_tools` prompt tokens | `bm25` (k=5) |
+|---|---|---|
+| 50 | 5,552 | 800 |
+| 100 | 10,262 | 702 |
 
-**2. The tiers separate cleanly** (BM25 R@1 at size 50): easy 0.95, medium 0.65,
-hard 0.35. The task design works, and a blended number would have hidden a
-3× spread.
+Declaring everything doubles when the catalog doubles. Selecting 5 does not
+move. Extrapolated to 400 tools that is ~40k tokens versus ~800, **on every
+turn**. This is the core economic argument for selection, and it holds
+regardless of how good the retriever is.
 
-**3. BM25 almost never falls into the designed traps** — 0 of 21 errors at size
-50. It fails on *vocabulary mismatch* (it does not know "give someone access"
-means `github_add_collaborator`), while the traps were built for *semantic*
-confusion. Prediction: the traps will bite the embedding strategy and the LLM
-much harder than they bite BM25. Untested — this is the next thing to run.
+### 2. BM25 recall is nearly invariant to catalog size
 
----
+R@1 across sizes at `profile=full`: 0.667 (100) → 0.658 (200) → 0.650 (400),
+while `random` collapses — confirming the padding genuinely adds distractors
+and the metric is sensitive to them.
+
+**Scaling to 400 tools is a token-cost problem, not a retrieval problem.** Spend
+effort on what you *declare*, not on ranking harder.
+
+### 3. Doubling the core did not make retrieval harder
+
+Going from 50 → 100 hand-written tools (and 60 → 120 tasks), including the new
+four- and six-way collisions, moved BM25 R@1 from 0.650 to 0.667. More tools and
+*harder* collisions, no degradation.
+
+### 4. Multi-way collisions fail differently — and k does not rescue them
+
+Hard tier only, `profile=full`, size 100:
+
+| task group | R@1 | R@3 | R@5 | R@10 |
+|---|---|---|---|---|
+| base (pairwise traps) | 0.25 | 0.75 | 0.75 | 0.85 |
+| extended (multi-way traps) | **0.45** | 0.60 | 0.60 | 0.75 |
+
+The extended hard tasks score *higher* at k=1 but *lower* at k=3 and beyond. The
+gold tool is either rank 1 or nowhere — competing tools from the other four
+systems crowd it out.
+
+This is the practically useful result. For pairwise collisions, "declare top-5
+and let the model disambiguate" works: recall triples from k=1 to k=3. For
+multi-way collisions it does not — raising k barely helps because the right
+answer is not in the list at all. **Those two failure modes need different
+fixes, and a blended recall number hides the distinction completely.**
+
+### 5. BM25 almost never falls into the *designed* traps
+
+1 of 40 errors at size 100. It fails on vocabulary mismatch — it does not know
+"give someone access" means `github_add_collaborator` — while the traps were
+built for *semantic* confusion. Prediction: the traps will bite the embedding
+strategy and the LLM much harder than they bite BM25. Still untested, and the
+most interesting thing to run next.
+
+### Caveats
+
+- Filler padding is lexically distant from core vocabulary, so BM25 rejects it
+  easily. That is part of why finding 2 looks so clean. Padding with
+  near-duplicates *of core tools* is the honest harder test.
+- All hard traps live in the core, present at every size, so difficulty is
+  constant by construction while `size` varies.
+- Findings 1 and 4 are single-query and single-configuration respectively. The
+  full agent sweep is what turns them into claims.
 
 ## Status
 
-Working: catalog, scaling, task set, offline retrieval eval, all strategies,
-ADK integration (constructs and wires correctly end to end).
+Working: 100-tool catalog over 10 domains, profiles, scaling to 400, 120-task
+set, offline retrieval eval, all strategies, ADK integration, and the `adk web`
+dev UI with one agent per strategy.
 
-Not yet run: the full agent sweep — needs an API key in `.env`.
+Not yet run: the full agent sweep over all 120 tasks.
 
 Open next steps, roughly in value order:
 
@@ -296,10 +361,13 @@ Open next steps, roughly in value order:
 ## Layout
 
 ```
-catalog/     schema.py (ToolSpec, ADK StubTool) · domains.py (50 core tools) · __init__.py (scaling)
-tasks/       60 labelled queries across 3 tiers
-strategies/  base.py (interface + ADK bridge) · lexical.py · embedding.py · hierarchical.py
-harness/     runner.py (ADK execution + instrumentation) · metrics.py
-run_eval.py  CLI
-results/     CSV output
+catalog/      schema.py (ToolSpec, ADK StubTool) · domains.py (base 50)
+              domains_ext.py (extended 50) · __init__.py (profiles + scaling)
+tasks/        tasks.py (60) · tasks_ext.py (60) · __init__.py (profile-scoped)
+strategies/   base.py (interface + ADK bridge) · lexical.py · embedding.py · hierarchical.py
+harness/      runner.py (ADK execution + instrumentation) · metrics.py
+agents/       one ADK agent package per strategy, for `adk web`
+run_eval.py   the sweep — real numbers
+compare_query.py  one query across every strategy — demo/intuition
+results/      CSV output
 ```
