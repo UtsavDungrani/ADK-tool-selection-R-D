@@ -199,7 +199,7 @@ def main() -> int:
     p.add_argument("--k", type=int, default=5, help="tools declared per request (full mode)")
     p.add_argument("--k-sweep", dest="k_sweep", default="1,3,5,10,20",
                    help="k values to measure in --retrieval-only mode")
-    p.add_argument("--model", default="gemini-2.5-flash")
+    p.add_argument("--model", default="gemini-3.5-flash-lite")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--retrieval-only", action="store_true")
     p.add_argument("--sleep", type=float, default=0.0,

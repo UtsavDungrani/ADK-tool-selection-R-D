@@ -120,6 +120,96 @@ its spend in a second model call.
 
 ---
 
+## Seeing it in `adk web`
+
+ADK ships a dev UI. There is **one agent folder per strategy** under `agents/`,
+so the app dropdown becomes a live strategy switcher — same query, flip the
+dropdown, watch the declared tool surface and the model's choice change.
+
+```bash
+adk web agents --port 8001
+```
+
+Then open <http://127.0.0.1:8001>.
+
+Point it at `agents`, **not** the project root. From the root the agents end up
+nested under an `agents/` folder in the picker and the search box does not
+descend into folders.
+
+What to look at, per turn:
+
+| tab | shows | why it matters |
+|---|---|---|
+| **Events** | the `functionCall` the model emitted | the selection — the thing being measured |
+| **State** | `declared_tools`, `declared_count` | what the strategy *exposed*, written by a `before_model_callback` |
+| **Trace** | per-step latency | includes the hierarchical router's extra call |
+
+Read State alongside Events. Gold tool missing from `declared_tools` → the
+retriever failed. Gold present and the model still picked wrong → retrieval is
+fine and the descriptions are the problem. Those have different fixes, and the
+UI is the fastest way to tell them apart on a single query.
+
+Tune without editing code — set in `.env`, restart:
+
+```
+TSRND_CATALOG_SIZE=400    # default 50
+TSRND_K=5                 # tools declared per request
+TSRND_MODEL=gemini-3.5-flash-lite
+```
+
+### One query across every strategy
+
+```bash
+python compare_query.py --gold github_add_collaborator --show-declared \
+  "Our repo acme/infra needs sam to be able to merge - sort out their access."
+```
+
+```
+strategy       declared  tokens      ms  called
+all_tools            50    5552    6310  github_add_collaborator   CORRECT
+bm25                  5     800    5135  github_add_collaborator   CORRECT
+embedding             5     807    7146  github_add_collaborator   CORRECT
+hierarchical          5     844   33854  github_add_collaborator   CORRECT
+random_floor          5     647    6120  github_merge_pull_request wrong
+```
+
+**86% fewer prompt tokens with the selection preserved**, on a hard trap query.
+`random_floor` is the control: it also spends few tokens and gets it wrong, so
+the saving is attributable to selection quality, not to declaring less.
+
+Qualitatively, embedding's top-5 was all GitHub tools with gold ranked first,
+while BM25's included `jira_list_users` and `gcalendar_set_out_of_office` — it
+surfaced the right answer with more noise around it.
+
+`compare_query.py` is a demo tool and counts tokens more loosely than
+`run_eval.py` (see its docstring). Quote `run_eval.py` in the write-up.
+
+## Model availability is a real constraint
+
+Picking a model turned out to be an experimental decision, not a detail:
+
+| model | latency | result on the trap query |
+|---|---|---|
+| `gemini-2.5-flash` | — | 404, no longer available to new API keys |
+| `gemini-3.5 / 3.6 / 3.7-flash` | — | 503, high demand |
+| `gemini-3.8-flash` | 7.1s | **wrong** (`slack_list_users`) |
+| `gemini-3.5-flash-lite` | 2.8s | correct |
+| `gemini-3.1-flash-lite` | 1.5s | correct |
+
+Default is `gemini-3.5-flash-lite` — available, fast enough for a 60-task
+sweep, and pinned rather than `-latest` so runs stay reproducible.
+
+Two things to watch for, because both cost hours if you do not know them:
+
+- A 503 is **retried silently** by the SDK. A call that looks like it took 60
+  seconds was usually retrying, and an eventual HTTP 500 from `adk web` is
+  normally model capacity, not your code. Reproduce in-process to see the real
+  traceback before debugging the harness.
+- `gemini-3.8-flash` picking `slack_list_users` for a GitHub access request,
+  with all 50 tools declared, is a single sample — but it is exactly the
+  distractor-density failure this project exists to measure. Model choice is
+  worth adding as a sweep axis.
+
 ## Running it
 
 ```bash

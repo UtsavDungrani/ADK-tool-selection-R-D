@@ -31,7 +31,7 @@ from catalog import DOMAIN_DESCRIPTIONS, ToolSpec
 from .base import AuxCost, SelectionStrategy
 from .lexical import BM25Strategy
 
-_ROUTER_MODEL = "gemini-2.5-flash"
+_ROUTER_MODEL = "gemini-3.5-flash-lite"
 
 _ROUTER_PROMPT = """You route a user request to the tool namespaces that could serve it.
 
