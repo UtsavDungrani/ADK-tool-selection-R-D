@@ -143,3 +143,30 @@ def make_agent(strategy_name: str, description: str) -> LlmAgent:
         tools=[toolset],
         before_model_callback=_make_capture(strategy_name),
     )
+
+
+def make_static_agent(description: str) -> LlmAgent:
+    """Build the all-tools agent with a FLAT tool list rather than a toolset.
+
+    ADK has three graph builders and they disagree. `/dev/apps/{app}/graph` and
+    the per-event graph both call `canonical_tools()`, which expands a toolset
+    into its individual tools (101 nodes for us). The dev UI's graph panel
+    instead calls `/dev/apps/{app}/build_graph_image`, which serializes
+    `agent.tools` literally and never expands anything -- so a BaseToolset
+    renders as one node labelled with its class name.
+
+    A flat list makes every tool visible there. This is only sound for the
+    all-tools baseline, which declares the whole catalog on every turn anyway.
+    """
+    from catalog import build_tools, load_catalog
+
+    model = os.environ.get("TSRND_MODEL", DEFAULT_MODEL)
+    catalog = load_catalog(_catalog_size(), profile=_profile())
+    return LlmAgent(
+        model=model,
+        name="all_tools_static_selector",
+        description=f"{description} (catalog={len(catalog)})",
+        instruction=INSTRUCTION,
+        tools=list(build_tools(catalog)),
+        before_model_callback=_make_capture("all_tools_static"),
+    )

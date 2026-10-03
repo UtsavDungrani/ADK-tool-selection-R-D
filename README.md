@@ -240,6 +240,42 @@ TSRND_K=5                 # tools declared per request
 TSRND_MODEL=gemini-3.5-flash-lite
 ```
 
+### The graph panel shows one node, and that is ADK, not us
+
+The dev UI's graph panel renders `all_tools_selector -> StrategyToolset` — a
+single collapsed node — however many tools the catalog holds.
+
+ADK has **three** graph builders and they disagree:
+
+| endpoint | expands a toolset? | nodes for us |
+|---|---|---|
+| `/dev/apps/{app}/graph` | yes, via `canonical_tools()` | 101 |
+| `.../events/{id}/graph` | yes, via `canonical_tools()` | 101 |
+| `/dev/apps/{app}/build_graph_image` | **no** — serializes `agent.tools` literally | **2** |
+
+The UI's graph panel calls the third one. It never resolves toolsets, so a
+`BaseToolset` appears as one node labelled with its class name.
+
+This is not fixable by changing how tools are defined: a toolset is one entry
+in `agent.tools` whether it holds functions, specs or anything else. The only
+way to populate that graph is to pass a flat list of tools — which forfeits
+per-query selection, the entire point of the project.
+
+So there is a genuine tradeoff, and `agents/all_tools_static/` is the one place
+it does not bite: the all-tools baseline declares the whole catalog every turn
+anyway, so a flat list is behaviourally identical and the graph shows all 100
+tools. The selecting strategies must stay toolsets.
+
+**For per-turn truth, read State and Events, not the graph:**
+
+| view | shows | accurate per turn? |
+|---|---|---|
+| Graph | static structure | no — collapsed, or capability-only |
+| State | `declared_tools`, `declared_count` | **yes** |
+| Events | the `functionCall` emitted | **yes** |
+
+The graph looks identical whether a strategy declared 5 tools or 100.
+
 ### One query across every strategy
 
 ```bash
