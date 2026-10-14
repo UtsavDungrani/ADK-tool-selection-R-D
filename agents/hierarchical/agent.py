@@ -1,6 +1,9 @@
 """Agent for the `adk web` dropdown: hierarchical selection strategy."""
 
-from _common import make_agent
+try:
+    from _common import make_agent
+except ImportError:
+    from agents._common import make_agent
 
 root_agent = make_agent(
     "hierarchical",

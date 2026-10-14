@@ -141,6 +141,11 @@ class EmbeddingStrategy(SelectionStrategy):
                 vec = list(emb.values)
                 out[i] = vec
                 self.cache.put(self.model, task_type, texts[i], vec)
+            # Flush per batch, not once at the end. Warming a 350-tool catalog
+            # is hundreds of embed requests and the free tier caps them per
+            # minute, so a 429 part-way through is normal. Flushing here means
+            # the next attempt resumes instead of starting over.
+            self.cache.flush()
 
         if api_calls:
             self.cache.flush()

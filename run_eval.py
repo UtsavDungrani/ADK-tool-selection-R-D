@@ -74,6 +74,10 @@ def build_strategy(name: str, catalog, model: str, tasks):
         return EmbeddingStrategy(catalog, asymmetric=False)
     if name == "hierarchical":
         return HierarchicalStrategy(catalog, model=model)
+    if name == "rag_multi":
+        from strategies.rag_multi import RAGMultiToolStrategy
+
+        return RAGMultiToolStrategy(catalog, decomposer_model=model)
     if name == "oracle":
         return OracleStrategy(catalog, {t.query.strip(): t.gold for t in tasks})
     raise SystemExit(f"unknown strategy: {name}")

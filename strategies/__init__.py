@@ -6,6 +6,7 @@ from .lexical import (
     RandomStrategy,
     tokenize,
 )
+from .rag_multi import RAGMultiToolStrategy
 
 __all__ = [
     "AuxCost",
@@ -16,5 +17,7 @@ __all__ = [
     "BM25Strategy",
     "OracleStrategy",
     "RandomStrategy",
+    "RAGMultiToolStrategy",
     "tokenize",
 ]
+

@@ -126,13 +126,18 @@ the Python function.
 
 ### Catalog
 
-**100 hand-written core tools** across 10 domains, built around **deliberately
+**350 hand-written core tools** across 35 domains, built around **deliberately
 seeded collisions**:
 
 | group | domains |
 |---|---|
-| base | `github` `jira` `slack` `gcalendar` `gdrive` |
-| extended | `notion` `zendesk` `pagerduty` `stripe` `sentry` |
+| base (50) | `github` `jira` `slack` `gcalendar` `gdrive` |
+| +80 | `notion` `zendesk` `pagerduty` `stripe` `sentry` `linear` `confluence` `gitlab` |
+| +220 | `bitbucket` `asana` `trello` `teams` `zoom` `outlook` `gmail` `dropbox` `box` `onedrive` `sharepoint` `salesforce` `hubspot` `intercom` `freshdesk` `datadog` `grafana` `newrelic` `opsgenie` `figma` `airtable` `okta` |
+
+Domains are not uniform in size: `github` carries 12, `okta` 8, the rest 10.
+Padding a domain to a round number would add vocabulary nobody writes a query
+against.
 
 Three collision classes, escalating:
 
@@ -154,14 +159,14 @@ built around that claim.
 
 | knob | varies | effect |
 |---|---|---|
-| `profile` | which hand-written core | **changes the questions** — `base` = 50 tools/60 tasks, `full` = 100/120 |
+| `profile` | which hand-written core | **changes the questions** — `base` = 50 tools/60 tasks, `full` = 350/132 |
 | `size` | total catalog incl. filler | **holds questions fixed**, adds wrong answers to reject |
 
 Sweeping `size` at a fixed `profile` isolates distractor pressure. Changing
 `profile` is a different experiment; its numbers are not directly comparable
 because the question set changed — say so if you report both.
 
-Filler comes from 25 plausible neighbouring SaaS systems and is **never** a gold
+Filler comes from 33 plausible neighbouring SaaS systems and is **never** a gold
 answer. Systems promoted into the core were removed from the filler vocabulary,
 so a hierarchical router that correctly picks `sentry` is not handed a mix of
 real and generated tools and then scored as if it had failed.
@@ -174,13 +179,18 @@ tools would produce a quietly meaningless number, which is worse than a crash.
 
 ### Tasks
 
-120 labelled queries, 12 per domain, balanced 40/40/40 across tiers:
+132 labelled queries, balanced across tiers:
 
 - **easy** — names the system (`"Open a GitHub issue..."`)
 - **medium** — system implied (`"Where is validate_jwt defined?"`)
 - **hard** — sits on a seeded trap
 
-All 100 core tools appear as gold at least once.
+**Task coverage has not kept up with the catalog.** 110 of the 350 core tools
+appear as gold; the other 240 are currently only distractors. That is a real
+limitation: the 350-tool core raises distractor pressure on the existing
+questions, but it does not yet ask anything new. Until tasks are written for
+them, `full` is closer to a better-quality `size` knob than to a genuinely
+larger question set — and `profile` numbers should be reported that way.
 
 ### Strategies
 

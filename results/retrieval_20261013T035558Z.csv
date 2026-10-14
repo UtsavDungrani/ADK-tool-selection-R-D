@@ -1,0 +1,11 @@
+mode,profile,strategy,catalog_size,k,recall,recall_easy,recall_medium,recall_hard
+retrieval,full,bm25,110,1,0.6818,0.9773,0.6591,0.4091
+retrieval,full,bm25,110,3,0.8182,0.9773,0.7955,0.6818
+retrieval,full,bm25,110,5,0.8409,0.9773,0.8409,0.7045
+retrieval,full,bm25,110,10,0.9167,0.9773,0.9545,0.8182
+retrieval,full,bm25,110,20,0.9621,1.0,1.0,0.8864
+retrieval,full,random,110,1,0.0076,0.0,0.0227,0.0
+retrieval,full,random,110,3,0.0303,0.0,0.0682,0.0227
+retrieval,full,random,110,5,0.0303,0.0,0.0682,0.0227
+retrieval,full,random,110,10,0.053,0.0455,0.0909,0.0227
+retrieval,full,random,110,20,0.1515,0.1364,0.2273,0.0909

@@ -29,6 +29,35 @@ from google.genai import types
 from ._spec import ToolSpec
 
 
+_INVOCATION_USED_TOOLS: dict[str, list[str]] = {}
+_LAST_INVOCATION_ID: Optional[str] = None
+
+
+def record_tool_used(name: str, invocation_id: Optional[str] = None) -> None:
+    global _LAST_INVOCATION_ID
+    if invocation_id:
+        _LAST_INVOCATION_ID = invocation_id
+        if invocation_id not in _INVOCATION_USED_TOOLS:
+            _INVOCATION_USED_TOOLS[invocation_id] = []
+        if name not in _INVOCATION_USED_TOOLS[invocation_id]:
+            _INVOCATION_USED_TOOLS[invocation_id].append(name)
+    else:
+        key = _LAST_INVOCATION_ID or "__default__"
+        if key not in _INVOCATION_USED_TOOLS:
+            _INVOCATION_USED_TOOLS[key] = []
+        if name not in _INVOCATION_USED_TOOLS[key]:
+            _INVOCATION_USED_TOOLS[key].append(name)
+
+
+def get_recorded_tool_names(invocation_id: Optional[str] = None) -> list[str]:
+    key = invocation_id or _LAST_INVOCATION_ID
+    if key and key in _INVOCATION_USED_TOOLS:
+        return list(_INVOCATION_USED_TOOLS[key])
+    if "__default__" in _INVOCATION_USED_TOOLS:
+        return list(_INVOCATION_USED_TOOLS["__default__"])
+    return []
+
+
 class FunctionBackedTool(BaseTool):
     """An ADK tool backed by a real Python function."""
 
@@ -40,6 +69,16 @@ class FunctionBackedTool(BaseTool):
         return self.spec.to_declaration()
 
     async def run_async(self, *, args: dict[str, Any], tool_context: ToolContext) -> Any:
+        invoc_id = getattr(tool_context, "invocation_id", None) if tool_context else None
+        record_tool_used(self.spec.name, invocation_id=invoc_id)
+        if tool_context and hasattr(tool_context, "state"):
+            try:
+                used = tool_context.state.get("used_tools", [])
+                if self.spec.name not in used:
+                    tool_context.state["used_tools"] = [*used, self.spec.name]
+            except Exception:
+                pass
+
         fn = self.spec.func
         if fn is None:
             return {"status": "stub", "tool": self.spec.name, "args": args}
@@ -60,3 +99,4 @@ class FunctionBackedTool(BaseTool):
 
 def build_tools(specs: list[ToolSpec]) -> list[FunctionBackedTool]:
     return [FunctionBackedTool(s) for s in specs]
+

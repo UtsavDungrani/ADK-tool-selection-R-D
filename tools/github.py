@@ -52,6 +52,35 @@ def github_search_issues(
     return {"status": "stub", "tool": "github_search_issues", "args": locals()}
 
 
+@tool(
+    domain="github",
+    confusable_with=[
+        "gitlab_create_merge_request",
+        "github_create_issue",
+        "github_merge_pull_request",
+    ],
+)
+def github_create_pull_request(
+    repo: str,
+    title: str,
+    head: str,
+    base: Optional[str] = None,
+    body: Optional[str] = None,
+    draft: Optional[bool] = None,
+) -> dict:
+    """Open a new pull request proposing that one branch be merged into another on GitHub.
+
+    Args:
+        repo: Repository in owner/name form, e.g. acme/web-app.
+        title: Short pull request title.
+        head: Branch containing the changes to merge.
+        base: Branch to merge into, e.g. main.
+        body: Markdown description of the proposed change.
+        draft: Open the pull request as a draft rather than ready for review.
+    """
+    return {"status": "stub", "tool": "github_create_pull_request", "args": locals()}
+
+
 @tool(domain="github", confusable_with=["github_search_pull_requests"])
 def github_list_pull_requests(
     repo: str,
@@ -156,6 +185,24 @@ def github_create_branch(
         from_ref: Base branch or commit SHA.
     """
     return {"status": "stub", "tool": "github_create_branch", "args": locals()}
+
+
+@tool(domain="github", confusable_with=["github_create_branch", "github_merge_pull_request"])
+def github_create_commit(
+    repo: str,
+    branch: str,
+    message: str,
+    paths: Optional[list[str]] = None,
+) -> dict:
+    """Commit file changes to a branch in a GitHub repository.
+
+    Args:
+        repo: Repository in owner/name form, e.g. acme/web-app.
+        branch: Branch to commit onto.
+        message: Commit message.
+        paths: Files to include in the commit; all changed files when omitted.
+    """
+    return {"status": "stub", "tool": "github_create_commit", "args": locals()}
 
 
 @tool(domain="github")

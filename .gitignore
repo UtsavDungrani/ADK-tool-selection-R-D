@@ -8,3 +8,6 @@ results/.embed_cache.json
 # ADK local dev-UI session databases
 .adk/
 **/.adk/
+.last_used_tools.json
+**/.last_used_tools.json
+

@@ -14,7 +14,10 @@ hierarchical) cannot be expressed this way -- their whole purpose is to return
 a different tool list per query, which a static list cannot do.
 """
 
-from _common import make_static_agent
+try:
+    from _common import make_static_agent
+except ImportError:
+    from agents._common import make_static_agent
 
 root_agent = make_static_agent(
     "Entire catalog as a flat tool list - identical to all_tools, but every "

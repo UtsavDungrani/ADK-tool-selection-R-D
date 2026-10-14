@@ -9,7 +9,7 @@ TWO KNOBS, DELIBERATELY SEPARATE
   profile   WHICH hand-written tools form the core, and therefore which tasks
             are answerable. Growing the core changes the question set.
               "base" -> 50 tools, the original 5 domains
-              "full" -> 100 tools, all 10 domains  (default)
+              "full" -> 350 tools, all 35 domains  (default)
 
   size      TOTAL catalog size. The core is kept intact and padded with
             generated filler from plausible neighbouring SaaS systems. Filler
@@ -58,9 +58,30 @@ __all__ = [
     "CORE_NAMES",
 ]
 
-#: The 5 domains the study started with, and the 5 added when it scaled to 100.
+#: The 5 domains the study started with, and everything added as it scaled.
 BASE_DOMAINS = ("github", "jira", "slack", "gcalendar", "gdrive")
-EXT_DOMAINS = ("notion", "zendesk", "pagerduty", "stripe", "sentry")
+EXT_DOMAINS = (
+    # Promoted in the 100-tool and 130-tool rounds.
+    "notion", "zendesk", "pagerduty", "stripe", "sentry",
+    "linear", "confluence", "gitlab",
+    # Promoted in the 350-tool round. Chosen for collision pressure: each one
+    # is a near drop-in replacement for a domain already in the core, so the
+    # catalog now carries several four- and five-way ambiguities rather than
+    # the pairwise ones it started with.
+    "bitbucket",                                 # vs github, gitlab
+    "asana", "trello",                           # vs jira, linear
+    "teams",                                     # vs slack
+    "zoom",                                      # vs gcalendar
+    "outlook", "gmail",                          # mail: new category, and vs gcalendar
+    "dropbox", "box", "onedrive",                # vs gdrive
+    "sharepoint",                                # vs confluence, notion
+    "salesforce", "hubspot",                     # CRM: new category
+    "intercom", "freshdesk",                     # vs zendesk
+    "datadog", "grafana", "newrelic",            # vs sentry
+    "opsgenie",                                  # vs pagerduty
+    "figma", "airtable",                         # low-overlap controls
+    "okta",                                      # access granting, vs github/gdrive sharing
+)
 
 # Canonical order: base domains first, then extended, each in the order the
 # study introduced them. `tools/` imports its modules alphabetically, but
@@ -77,7 +98,7 @@ assert len(ALL_SPECS) == len(_ALL_SPECS), (
 
 PROFILES: dict[str, list[ToolSpec]] = {
     "base": [s for s in ALL_SPECS if s.domain in BASE_DOMAINS],   # 50
-    "full": list(ALL_SPECS),                                      # 100
+    "full": list(ALL_SPECS),                                      # 350
 }
 
 #: Names of every hand-written tool. Used by task validation to confirm no gold
@@ -94,37 +115,47 @@ def core_names(profile: str = "full") -> frozenset[str]:
 # would make the scaling curve look far better than reality, because a
 # retriever rejects them trivially.
 #
-# Systems promoted into the hand-written core (notion, zendesk, pagerduty,
-# stripe, sentry) are deliberately absent. Leaving them would generate filler
-# sharing a namespace with real tools, so a hierarchical router that correctly
-# picked "sentry" would be handed a mix of real and junk tools and scored as if
-# it had failed.
+# Every system promoted into the hand-written core is deliberately absent from
+# this list. Leaving one in would generate filler sharing a namespace with real
+# tools, so a hierarchical router that correctly picked "sentry" or "opsgenie"
+# would be handed a mix of real and junk tools and scored as if it had failed.
+# The 350-tool round promoted nineteen systems out of this list (asana,
+# salesforce, datadog, dropbox and the rest); replacements were added below so
+# the `size` knob keeps its headroom.
 _FILLER_SYSTEMS: dict[str, str] = {
-    "confluence": "Confluence wiki",
-    "linear": "Linear issue tracker",
-    "asana": "Asana project tracker",
-    "gitlab": "GitLab repository host",
-    "salesforce": "Salesforce CRM",
-    "hubspot": "HubSpot CRM",
-    "datadog": "Datadog observability platform",
-    "figma": "Figma design tool",
-    "zoom": "Zoom meeting platform",
-    "onedrive": "OneDrive file storage",
-    "dropbox": "Dropbox file storage",
-    "outlook": "Outlook mail client",
-    "teams": "Microsoft Teams chat",
-    "trello": "Trello kanban board",
-    "bitbucket": "Bitbucket repository host",
-    "intercom": "Intercom messaging platform",
-    "airtable": "Airtable database",
     "miro": "Miro whiteboard",
-    "box": "Box file storage",
     "monday": "Monday work tracker",
     "clickup": "ClickUp work tracker",
-    "freshdesk": "Freshdesk support desk",
-    "opsgenie": "Opsgenie alerting platform",
-    "grafana": "Grafana dashboards",
-    "newrelic": "New Relic observability platform",
+    "basecamp": "Basecamp project tracker",
+    "smartsheet": "Smartsheet work tracker",
+    "wrike": "Wrike project tracker",
+    "shortcut": "Shortcut issue tracker",
+    "productboard": "Productboard roadmap tool",
+    "servicenow": "ServiceNow service desk",
+    "freshservice": "Freshservice IT service desk",
+    "zoho": "Zoho CRM",
+    "pipedrive": "Pipedrive sales CRM",
+    "splunk": "Splunk log platform",
+    "elastic": "Elastic observability platform",
+    "bugsnag": "Bugsnag error monitor",
+    "rollbar": "Rollbar error monitor",
+    "amplitude": "Amplitude product analytics",
+    "mixpanel": "Mixpanel product analytics",
+    "looker": "Looker business intelligence tool",
+    "launchdarkly": "LaunchDarkly feature flag service",
+    "circleci": "CircleCI build service",
+    "jenkins": "Jenkins build server",
+    "snyk": "Snyk dependency scanner",
+    "sonarqube": "SonarQube code quality scanner",
+    "docusign": "DocuSign signature service",
+    "calendly": "Calendly scheduling tool",
+    "mailchimp": "Mailchimp email marketing tool",
+    "sendgrid": "SendGrid transactional email service",
+    "twilio": "Twilio messaging platform",
+    "mattermost": "Mattermost team chat",
+    "webex": "Webex meeting platform",
+    "lucidchart": "Lucidchart diagram tool",
+    "coda": "Coda workspace docs",
 }
 
 _FILLER_ACTIONS: list[tuple[str, str]] = [
@@ -198,7 +229,7 @@ def load_catalog(
     Args:
         size: Total tool count. None returns the profile's core unpadded.
         seed: Seed for deterministic filler generation.
-        profile: Which hand-written core to use -- "base" (50) or "full" (100).
+        profile: Which hand-written core to use -- "base" (50) or "full" (350).
     """
     if profile not in PROFILES:
         raise ValueError(f"unknown profile {profile!r}; choose from {sorted(PROFILES)}")

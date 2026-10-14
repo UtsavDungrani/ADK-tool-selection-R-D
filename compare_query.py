@@ -41,7 +41,8 @@ import urllib.error
 import urllib.request
 
 DEFAULT_BASE = "http://127.0.0.1:8001"
-DEFAULT_APPS = ["all_tools", "bm25", "embedding", "hierarchical", "random_floor"]
+DEFAULT_APPS = ["all_tools", "bm25", "embedding", "hierarchical", "rag_multi_tool", "random_floor"]
+
 
 
 def _post(url: str, payload: dict, timeout: float = 120.0):
